@@ -15,6 +15,7 @@ EvalAI 评测环境会调用此函数。
   - LLM_MODEL          模型名称
 """
 
+import importlib.util
 import json
 import os
 import sys
@@ -31,51 +32,44 @@ from llm_client import LLMClient
 
 
 def evaluate(submission_path, annotation_path, output_path, submission_metadata=None, **kwargs):
-    """EvalAI 评测入口。"""
+    """EvalAI 评测入口。返回 result dict，同时写入 output_path。"""
     try:
-        _run_evaluation(submission_path, annotation_path, output_path)
+        result = _run_evaluation(submission_path, annotation_path, output_path)
+        _write_output(output_path, result)
+        return result
     except Exception as e:
-        _write_error(output_path, f"Evaluation crashed: {str(e)}\n{traceback.format_exc()}")
+        err = {"result": [{"split": "test", "metrics": {"error": f"Crash: {str(e)}"}}]}
+        _write_output(output_path, err)
+        return err
 
 
 def _run_evaluation(submission_path, annotation_path, output_path):
-    # 1. 将 submission 目录加入 import path
+    # 1. 将 submission 目录加入 import path（处理各种可能的路径结构）
     sys.path.insert(0, str(submission_path))
+    # 同时在 submission_path 下搜索 Python 文件
+    sp = Path(submission_path)
+    all_py = list(sp.glob("*.py")) + list(sp.glob("*/*.py")) + list(sp.glob("*/*/*.py"))
+    print(f"[EvalAI] submission_path={submission_path}, py_files={[str(p.relative_to(sp)) for p in all_py]}", file=sys.stderr)
 
-    # 2. 初始化 LLM 客户端（默认使用 DeepSeek，也可通过环境变量覆盖）
+    # 2. 初始化 LLM 客户端
     provider = os.environ.get("LLM_PROVIDER", "openai-compatible")
     model = os.environ.get("LLM_MODEL", "deepseek-chat")
     api_key = os.environ.get("LLM_API_KEY", os.environ.get("OPENAI_API_KEY", "sk-4c33138d8c5f4343ba3bb22a3484c4ef"))
     base_url = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 
     if not api_key:
-        _write_error(output_path, "LLM_API_KEY not set in environment")
-        return
+        return {"result": [{"split": "test", "metrics": {"error": "LLM_API_KEY not set"}}]}
 
-    llm_client = LLMClient(
-        provider=provider, model=model,
-        api_key=api_key, base_url=base_url,
-    )
+    llm_client = LLMClient(provider=provider, model=model, api_key=api_key, base_url=base_url)
 
-    # 3. 导入学生模块
-    try:
-        sys.path.insert(0, submission_path)
-        import q1_llm_prompt_planner as q1_module
-    except ImportError as e:
-        _write_error(output_path, f"Q1 import failed: {e}")
-        return
-
-    try:
-        import q2_llm_pddl_planner as q2_module
-    except ImportError as e:
-        _write_error(output_path, f"Q2 import failed: {e}")
-        return
+    # 3. 导入学生模块（支持 submission_path 下任一目录中的 py 文件）
+    q1_module = _import_from_submission(sp, "q1_llm_prompt_planner")
+    q2_module = _import_from_submission(sp, "q2_llm_pddl_planner")
 
     # 4. 加载所有隐藏任务
     tasks = _load_tasks()
     if not tasks:
-        _write_error(output_path, "No tasks found")
-        return
+        return {"result": [{"split": "test", "metrics": {"error": "No tasks found"}}]}
 
     # 5. 逐任务评测
     domain_path = SCRIPT_DIR / "pddl" / "domain.pddl"
@@ -83,16 +77,22 @@ def _run_evaluation(submission_path, annotation_path, output_path):
 
     for task in tasks:
         # Q1
-        try:
-            q1_results.append(_eval_q1(task, q1_module, llm_client))
-        except Exception as e:
-            q1_results.append(_error_result(task["task_id"], str(e)))
+        if q1_module:
+            try:
+                q1_results.append(_eval_q1(task, q1_module, llm_client))
+            except Exception as e:
+                q1_results.append(_error_result(task["task_id"], str(e)))
+        else:
+            q1_results.append(_error_result(task["task_id"], "Q1 module not loaded"))
 
         # Q2
-        try:
-            q2_results.append(_eval_q2(task, q2_module, llm_client, domain_path))
-        except Exception as e:
-            q2_results.append(_error_result(task["task_id"], str(e)))
+        if q2_module:
+            try:
+                q2_results.append(_eval_q2(task, q2_module, llm_client, domain_path))
+            except Exception as e:
+                q2_results.append(_error_result(task["task_id"], str(e)))
+        else:
+            q2_results.append(_error_result(task["task_id"], "Q2 module not loaded"))
 
     # 6. 计算得分并输出
     n = len(tasks)
@@ -145,12 +145,56 @@ def _run_evaluation(submission_path, annotation_path, output_path):
         }]
     }
 
-    with open(output_path, "w") as f:
-        json.dump(result, f, indent=2)
-    print(f"[EvalAI] Results written to {output_path}")
+    print(f"[EvalAI] Evaluation complete: Q1={q1_goal}/{n}, Q2={q2_goal}/{n}", file=sys.stderr)
+    return result
 
 
 # ── helpers ─────────────────────────────────────────────────────────
+
+def _import_from_submission(submission_dir, module_name):
+    """Try to import *module_name* from submission directory or its subdirectories."""
+    # Try direct import first
+    try:
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            str(submission_dir / f"{module_name}.py")
+        )
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = mod
+            spec.loader.exec_module(mod)
+            print(f"[EvalAI] Loaded {module_name} from {submission_dir}", file=sys.stderr)
+            return mod
+    except Exception as e:
+        print(f"[EvalAI] Direct import of {module_name} failed: {e}", file=sys.stderr)
+
+    # Search subdirectories
+    for py_file in submission_dir.rglob("*.py"):
+        if py_file.stem == module_name:
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, str(py_file))
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = mod
+                    spec.loader.exec_module(mod)
+                    py_dir = str(py_file.parent)
+                    if py_dir not in sys.path:
+                        sys.path.insert(0, py_dir)
+                    print(f"[EvalAI] Loaded {module_name} from {py_file}", file=sys.stderr)
+                    return mod
+            except Exception as e:
+                print(f"[EvalAI] Subdir import of {module_name} failed: {e}", file=sys.stderr)
+
+    print(f"[EvalAI] Could not find {module_name}.py in submission", file=sys.stderr)
+    return None
+
+
+def _write_output(output_path, result):
+    """Write result dict to output_path JSON file."""
+    with open(output_path, "w") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    print(f"[EvalAI] Output written to {output_path}", file=sys.stderr)
+
 
 def _load_tasks():
     tasks = []
@@ -222,9 +266,3 @@ def _normalise(plan):
 
 def _error_result(task_id, msg, elapsed=0):
     return {"task_id": task_id, "plan_valid": False, "goal_success": False, "num_steps": 0, "error": msg[:200], "time_s": round(elapsed, 2)}
-
-
-def _write_error(output_path, msg):
-    with open(output_path, "w") as f:
-        json.dump({"result": [{"split": "test", "metrics": {"error": msg}}]}, f)
-    print(f"[EvalAI ERROR] {msg}")
