@@ -30,7 +30,7 @@ from env.blocksworld_env import BlocksworldEnv
 from llm_client import LLMClient
 
 
-def evaluate(submission_path, annotation_path, output_path, **kwargs):
+def evaluate(submission_path, annotation_path, output_path, submission_metadata=None, **kwargs):
     """EvalAI 评测入口。"""
     try:
         _run_evaluation(submission_path, annotation_path, output_path)
