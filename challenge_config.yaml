@@ -1,4 +1,4 @@
-title: Blocksworld LLM Planning Challenge
+title: Blocksworld LLM Planning Challenge v2
 short_description: Solve classic Blocksworld planning tasks using LLMs - pure LLM prompt planning and LLM plus PDDL planner.
 description: templates/description.html
 evaluation_details: templates/evaluation_details.html
