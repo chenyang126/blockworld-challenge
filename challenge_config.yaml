@@ -1,5 +1,5 @@
-title: 基于大语言模型的 Blocksworld 任务规划实验
-short_description: 使用大语言模型完成经典 Blocksworld 积木世界自动规划任务。包含纯 LLM Prompt 规划和 LLM + PDDL 规划两种方法路线。
+title: Blocksworld LLM Planning Challenge
+short_description: Solve classic Blocksworld planning tasks using LLMs - pure LLM prompt planning and LLM plus PDDL planner.
 description: templates/description.html
 evaluation_details: templates/evaluation_details.html
 terms_and_conditions: templates/terms_and_conditions.html
@@ -49,7 +49,7 @@ leaderboard:
 
 challenge_phases:
   - id: 1
-    name: 评测阶段
+    name: Evaluation
     description: templates/challenge_phase_1_description.html
     leaderboard_public: True
     is_public: True
@@ -62,7 +62,7 @@ challenge_phases:
     start_date: 2026-06-01 00:00:00
     end_date: 2027-12-31 23:59:59
     test_annotation_file: annotations/test_annotations_devsplit.json
-    codename: dev
+    codename: eval
     max_submissions_per_day: 10
     max_submissions_per_month: 100
     max_submissions: 100
