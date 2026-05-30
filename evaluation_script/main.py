@@ -46,11 +46,11 @@ def evaluate(submission_path, annotation_path, output_path):
     # 1. 将 submission 目录加入 import path
     sys.path.insert(0, str(submission_path))
 
-    # 2. 初始化 LLM 客户端
-    provider = os.environ.get("LLM_PROVIDER", "openai")
-    model = os.environ.get("LLM_MODEL", "gpt-4o")
-    api_key = os.environ.get("LLM_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-    base_url = os.environ.get("LLM_BASE_URL", None)
+    # 2. 初始化 LLM 客户端（默认使用 DeepSeek，也可通过环境变量覆盖）
+    provider = os.environ.get("LLM_PROVIDER", "openai-compatible")
+    model = os.environ.get("LLM_MODEL", "deepseek-chat")
+    api_key = os.environ.get("LLM_API_KEY", os.environ.get("OPENAI_API_KEY", "sk-4c33138d8c5f4343ba3bb22a3484c4ef"))
+    base_url = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 
     if not api_key:
         _write_error(output_path, "LLM_API_KEY not set in environment")
