@@ -31,18 +31,14 @@ from llm_client import LLMClient
 
 
 def evaluate(submission_path, annotation_path, output_path, **kwargs):
-    """
-    EvalAI 评测入口。
+    """EvalAI 评测入口。"""
+    try:
+        _run_evaluation(submission_path, annotation_path, output_path)
+    except Exception as e:
+        _write_error(output_path, f"Evaluation crashed: {str(e)}\n{traceback.format_exc()}")
 
-    Parameters
-    ----------
-    submission_path : str
-        学生提交的解压目录，包含 q1_*.py 和 q2_*.py
-    annotation_path : str
-        EvalAI annotations 目录（本挑战不使用 annotations）
-    output_path : str
-        输出结果 JSON 文件路径
-    """
+
+def _run_evaluation(submission_path, annotation_path, output_path):
     # 1. 将 submission 目录加入 import path
     sys.path.insert(0, str(submission_path))
 
