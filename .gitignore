@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 outputs/
+results.json
 .claude/
 .vscode/
 *.bak

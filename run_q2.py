@@ -110,11 +110,12 @@ def main():
         sys.exit(1)
 
     # ── Import student planner ──────────────────────────────────────
+    sys.path.insert(0, str(PROJECT_ROOT / "my_planner"))
     try:
-        from student.q2_llm_pddl_planner import plan_with_llm_pddl
+        from q2_llm_pddl_planner import plan_with_llm_pddl
     except ImportError as e:
         print(f"[ERROR] Failed to import student planner: {e}")
-        print("Make sure student/q2_llm_pddl_planner.py exists and "
+        print("Make sure my_planner/q2_llm_pddl_planner.py exists and "
               "implements plan_with_llm_pddl().")
         sys.exit(1)
 

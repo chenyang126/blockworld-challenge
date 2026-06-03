@@ -1,424 +1,199 @@
-# Blocksworld 课程设计 — 学生开发指南
+# Blocksworld 学生指南
 
-## 一、你要做什么
+用大语言模型（LLM）让积木按要求堆好。你只写 **Prompt 和少量胶水代码**，不用自己实现环境，也不用写搜索算法。
 
-用大语言模型（LLM）完成 Blocksworld 积木世界规划任务，分两道题：
+| 题目 | 做法 | 你要改的文件 |
+|:---:|------|------|
+| **Q1** | 让 LLM 直接输出动作序列 | `my_planner/q1_llm_prompt_planner.py` |
+| **Q2** | 让 LLM 生成 PDDL 文件，再交给规划器求解 | `my_planner/q2_llm_pddl_planner.py` |
 
-| 题目 | 方法 | 你写的代码 | 核心挑战 |
-|:---:|------|------|------|
-| **Q1** | 纯 LLM Prompt 规划 | `student/q1_llm_prompt_planner.py` | LLM 直接输出动作序列，Prompt 设计决定成败 |
-| **Q2** | LLM + PDDL 规划器 | `student/q2_llm_pddl_planner.py` | LLM 生成 PDDL problem 文件，由规划器求解 |
-
-两道题共用一个 Blocksworld 环境和 25 个任务（4 公开 + 21 隐藏），最终用教师提供的评测脚本统一打分。
+两题共用同一套环境和 25 个任务（4 个公开 + 21 个隐藏），最后用 `evaluate.py` 统一打分。
 
 ---
 
-## 二、环境速览
-
-### 2.1 积木世界基本概念
+## 1. 积木世界长什么样
 
 ```
- [A]          ← 积木 A
- [B]          ← 积木 B  
- [C]          ← 积木 C
------         ← 桌面
-table
+ [A]      A 在最上面
+ [B]
+ [C]
+-----     桌面
 ```
 
-**5 种谓词**描述状态：
+**5 个谓词**描述状态：
 
-| 谓词 | 含义 | 示例 |
-|------|------|------|
-| `ontable(x)` | x 在桌面上 | `ontable(A)` |
-| `on(x,y)` | x 放在 y 上面 | `on(A,B)` |
-| `clear(x)` | x 上面没有东西 | `clear(A)` |
-| `holding(x)` | 机械手拿着 x | `holding(A)` |
-| `handempty` | 机械手为空 | `handempty` |
+| 谓词 | 含义 |
+|------|------|
+| `ontable(A)` | A 在桌上 |
+| `on(A,B)` | A 摞在 B 上 |
+| `clear(A)` | A 顶上没东西 |
+| `holding(A)` | 手正拿着 A |
+| `handempty` | 手是空的 |
 
-**4 种动作**（你只能使用这些）：
+**只有 4 个动作**：
 
-| 动作 | 前提条件 | 效果 |
-|------|----------|------|
-| `PICKUP(x)` | x 在桌上 **且** x 上面没东西 **且** 手为空 | 手拿着 x |
-| `PUTDOWN(x)` | 手拿着 x | x 放到桌上，手变空 |
-| `UNSTACK(x,y)` | x 在 y 上 **且** x 上面没东西 **且** 手为空 | 手拿着 x，y 变空 |
-| `STACK(x,y)` | 手拿着 x **且** y 上面没东西 | x 放到 y 上，手变空 |
+| 动作 | 什么时候能用 |
+|------|------|
+| `PICKUP(x)` | x 在桌上、顶上没东西、手是空的 |
+| `PUTDOWN(x)` | 手正拿着 x |
+| `UNSTACK(x,y)` | x 摞在 y 上、x 顶上没东西、手是空的 |
+| `STACK(x,y)` | 手拿着 x、y 顶上没东西 |
 
-### 2.2 你不可以做的事
+> 动作必须满足"什么时候能用"才合法。LLM 最常犯的错就是用了不满足条件的动作 —— 这正是你要在 Prompt 里解决的。
 
-- 不能写 BFS / DFS / A* 等搜索算法
-- 不能根据 `task_id` 硬编码答案
-- 不能修改 `env/`、`pddl/domain.pddl`、`evaluate.py`、`run_q*.py`
-- Q1 不能调 PDDL 规划器
-- Q2 不能改 `domain.pddl`（但必须调用 PDDL 规划器）
+**规则**：不能写 BFS/DFS/A\* 搜索，不能按 `task_id` 硬编码答案，不能改 `env/`、`pddl/`、`tasks/`、`run_*.py`、`evaluate.py`。
 
 ---
 
-## 三、项目结构（你只需要关注 `student/`）
+## 2. 在哪写代码
+
+只动 `my_planner/` 这一个目录：
 
 ```
-blockworld/
-├── env/                          # 教师提供 — 不修改
-├── pddl/domain.pddl              # 教师提供 — 不修改
-├── tasks/                        # 教师提供 — 不修改
-├── run_q1.py                     # 教师提供 — 用于单任务调试
-├── run_q2.py                     # 教师提供 — 用于单任务调试
-├── evaluate.py                   # 教师提供 — 用于批量评测
-├── llm_client.py                 # 教师提供 — LLM API 封装
-│
-└── student/                      # ← 你只需要改这个目录
-    ├── q1_llm_prompt_planner.py  # Q1 实现（3 个函数）
-    ├── q2_llm_pddl_planner.py    # Q2 实现（4 个函数）
-    └── prompt_templates/
-        ├── q1_prompt.txt         # Q1 Prompt 草稿（可选）
-        └── q2_pddl_prompt.txt    # Q2 Prompt 草稿（可选）
+student/
+├── my_planner/
+│   ├── q1_llm_prompt_planner.py   ← Q1，填 3 个函数
+│   ├── q2_llm_pddl_planner.py     ← Q2，填 4 个函数
+│   └── prompt_templates/          ← Prompt 草稿（可选）
+├── run_q1.py / run_q2.py          教师提供，调试单个任务用
+├── evaluate.py                    教师提供，一键自测全部任务
+└── tasks/                         25 个任务
 ```
 
----
-
-## 四、Q1 开发指南：纯 LLM Prompt 规划
-
-### 4.1 你要实现的 3 个函数
-
-```python
-def build_prompt(task: dict) -> str:
-    """输入任务字典，返回发给 LLM 的 Prompt 字符串"""
-
-def parse_llm_output(response: str) -> list[str]:
-    """输入 LLM 返回的文本，输出动作序列列表"""
-
-def plan_with_llm(task: dict, llm_client) -> list[str]:
-    """串联上面两步，返回动作序列"""
-```
-
-### 4.2 `task` 字典结构
+每个任务以字典形式传给你：
 
 ```python
 {
-    "task_id": "task_02",
     "blocks": ["A", "B", "C"],
-    "natural_language": "There are three blocks A, B, and C...",
-    "initial_state": ["on(C,A)", "ontable(A)", ...],  # 可能为空 []
-    "goal_state":    ["on(A,B)", "on(B,C)", ...],      # 可能为空 []
+    "natural_language": "把 A 放到 B 上……",   # 所有任务都有
+    "initial_state": ["on(C,A)", ...],         # 隐藏任务里是空列表 []
+    "goal_state":    ["on(A,B)", ...],         # 隐藏任务里是空列表 []
 }
 ```
 
-**重要**：对于一部分任务（隐藏测试），`initial_state` 和 `goal_state` 是空列表，你只能从 `natural_language` 中提取状态信息。你的 Prompt 需要处理这两种情况。
-
-### 4.3 `llm_client` 用法
-
-```python
-response = llm_client.chat(prompt)  # 发送 Prompt，返回 LLM 文本
-```
-
-`llm_client` 是教师提供的 `LLMClient` 实例，你不需要关心它的实现细节，直接调 `.chat()` 即可。
-
-### 4.4 Q1 开发步骤
-
-**第 1 步**：让公开任务跑通
-
-```bash
-python run_q1.py --task tasks/public/task_01.json \
-    --api-key <你的key> --provider openai-compatible \
-    --base-url <API地址> --model <模型名>
-```
-
-公开任务提供了结构化状态，先确保基本流程正常工作：
-- Prompt 能发给 LLM
-- `parse_llm_output()` 能从 LLM 回复中正确提取动作
-- 动作序列能在环境中通过
-
-**第 2 步**：优化 Prompt
-
-默认 Prompt 只告诉 LLM 动作名称，**没有解释前提条件**。这就是为什么它会犯错。你需要：
-
-1. **说明每个动作的前提条件**（什么时候能用）
-2. **给输出格式示例**（Few-shot：给一个正确的输入输出对）
-3. **要求 LLM 内部逐步检查状态**，但不输出推理过程
-
-**第 3 步**：处理 NL-only 任务
-
-当 `initial_state` 和 `goal_state` 为空时，你的 Prompt 必须引导 LLM 从自然语言中自行提取状态。
-
-### 4.5 Q1 常见失败原因
-
-| 现象 | 原因 | 解决方案 |
-|------|------|----------|
-| `Plan valid: False` | LLM 生成的动作不满足前提条件 | 在 Prompt 中详细说明前提条件，要求 LLM 逐步检查 |
-| `plan` 为空列表 | `parse_llm_output` 解析失败 | 检查正则表达式是否匹配 LLM 的输出格式；LLM 可能输出 markdown 围栏或编号 |
-| 目标未达成但计划有效 | LLM 生成的计划方向错了 | Prompt 中提供更清晰的目标状态描述 |
-| NL-only 任务全挂 | Prompt 没有处理无结构化状态的情况 | 让 LLM 从 NL 自行提取状态再规划 |
+> ⚠️ 21 个隐藏任务的 `initial_state`/`goal_state` 是空的，只能从 `natural_language` 里读出状态。**你的 Prompt 必须同时应付"有结构化状态"和"只有自然语言"两种情况。**
 
 ---
 
-## 五、Q2 开发指南：LLM + PDDL 规划器
+## 3. Q1：让 LLM 直接输出动作
 
-### 5.1 整体流程
-
-```
-任务描述 → [你的 Prompt] → LLM 生成 problem.pddl → [PDDL 规划器] → 动作序列
-```
-
-Q2 的核心思想：**LLM 不直接输出动作，而是把问题翻译成 PDDL 格式，交给经典规划器求解**。规划器保证计划的正确性（前提是 problem.pddl 写对了）。
-
-### 5.2 你要实现的 4 个函数
+填这 3 个函数（签名已给好，别改）：
 
 ```python
-def build_pddl_prompt(task: dict, domain_pddl: str) -> str:
-    """输入任务 + domain.pddl 文本，返回让 LLM 生成 problem.pddl 的 Prompt"""
-
-def generate_problem_pddl(task: dict, domain_pddl: str, llm_client) -> str:
-    """调 LLM 生成 problem.pddl 文本，清洗输出（去 markdown 等）"""
-
-def solve_pddl(domain_path: str, problem_path: str) -> list[str]:
-    """调 PDDL 规划器（pyperplan）对 domain + problem 求解"""
-
-def plan_with_llm_pddl(task: dict, domain_path: str, llm_client) -> list[str]:
-    """串联全流程"""
+def build_prompt(task) -> str:          # 拼出发给 LLM 的 Prompt
+def parse_llm_output(response) -> list:  # 从 LLM 回复里抽出动作序列
+def plan_with_llm(task, llm_client):     # 串起来：build → llm_client.chat() → parse
 ```
 
-### 5.3 PDDL 速成
+调用 LLM 只需一行：`response = llm_client.chat(prompt)`。
 
-**domain.pddl** 定义了积木世界的"规则"（教师提供，不修改）。**problem.pddl** 定义了一个具体的"题目"，你需要让 LLM 生成它。
+**写好 Prompt 的关键**：
+1. 把每个动作的"什么时候能用"写进 Prompt（默认模板没写，所以 LLM 会乱用）。
+2. 给一个"输入 → 正确输出"的示例（few-shot）。
+3. 要求 LLM 一行一个动作，**只输出动作**，不要解释、不要 markdown。
+4. 允许 LLM 内部一步步检查，但别把推理过程打印出来。
 
-一个合法的 problem.pddl 长这样：
+---
+
+## 4. Q2：让 LLM 写 PDDL，规划器来解
+
+```
+任务 →【你的 Prompt】→ LLM 生成 problem.pddl →【规划器】→ 动作序列
+```
+
+LLM 不直接想答案，只负责把题目"翻译"成 PDDL；正确性交给规划器保证。填这 4 个函数：
+
+```python
+def build_pddl_prompt(task, domain_pddl) -> str:        # 让 LLM 生成 problem.pddl 的 Prompt
+def generate_problem_pddl(task, domain_pddl, llm_client): # 调 LLM 并清洗输出
+def solve_pddl(domain_path, problem_path) -> list:       # 用 pyperplan 求解
+def plan_with_llm_pddl(task, domain_path, llm_client):    # 串起全流程
+```
+
+一个合法的 `problem.pddl`：
 
 ```lisp
 (define (problem task_02)
   (:domain blocksworld)
   (:objects A B C - block)
-  (:init
-    (on C A)
-    (ontable A)
-    (ontable B)
-    (clear C)
-    (clear B)
-    (handempty)
-  )
-  (:goal (and
-    (on A B)
-    (on B C)
-    (ontable C)
-  ))
-)
+  (:init (on C A) (ontable A) (ontable B) (clear C) (clear B) (handempty))
+  (:goal (and (on A B) (on B C) (ontable C))))
 ```
 
-关键语法规则：
-- 谓词用**空格**分隔参数：`(on A B)` ✅，不是 `(on A,B)` ❌
-- 所有积木必须在 `:objects` 中声明
-- `:goal` 用 `(and ...)` 包裹
-- 域名必须是 `blocksworld`
+注意：参数用**空格**分隔（`(on A B)` ✅，`(on A,B)` ❌）；所有积木都要写进 `:objects`；域名固定 `blocksworld`。
 
-### 5.4 调用 PDDL 规划器
+调用规划器（先 `pip install pyperplan`）：
 
 ```python
 from pyperplan import planner
 from pyperplan.search import breadth_first_search
-
 plan = planner.search_plan(domain_path, problem_path, breadth_first_search, None)
-# plan 是一个 Operator 对象列表
-# str(op) → "(pickup d)\n  PRE: ..." → 取第一行 → "pickup d"
-```
-
-安装 pyperplan：`pip install pyperplan`
-
-### 5.5 Q2 开发步骤
-
-**第 1 步**：让公开任务跑通
-
-```bash
-python run_q2.py --task tasks/public/task_02.json \
-    --api-key <你的key> --provider openai-compatible \
-    --base-url <API地址> --model <模型名>
-```
-
-预期输出：
-```
-Planner plan:
-  1. unstack c a
-  2. putdown c
-  ...
-Plan valid: True
-Goal achieved: True
-```
-
-先确保 LLM 生成的 problem.pddl 能被规划器正确解析和求解。
-
-**第 2 步**：优化 PDDL Prompt
-
-默认 Prompt 只给了 domain.pddl 的文本，**没有提供完整的 PDDL 示例**。你需要：
-
-1. **在 Prompt 中给出一个正确的 problem.pddl 完整示例**（最有效）
-2. 强调谓词语法：空格分隔参数，不是逗号
-3. 提醒 LLM 检查 `:objects` 是否包含所有积木
-4. 要求 LLM 不要输出 markdown 围栏
-
-**第 3 步**：处理 NL-only 任务
-
-当没有结构化状态时，你需要让 LLM：
-1. 从自然语言中推断初始状态和目标状态
-2. 将其翻译为 PDDL 谓词
-3. 生成正确的 problem.pddl
-
-这是 Q2 最困难的部分。在 Prompt 中提供一个 NL→PDDL 的转换示例很有帮助。
-
-**第 4 步**：清洗 LLM 输出
-
-LLM 不总是按你的要求输出纯净 PDDL。你需要在 `generate_problem_pddl()` 中处理：
-- markdown 代码围栏（\`\`\`lisp ... \`\`\`）
-- 多余的解释文字
-- 输出不以 `(define` 开头时，尝试在文本中查找
-
-### 5.6 Q2 常见失败原因
-
-| 现象 | 原因 | 解决方案 |
-|------|------|----------|
-| `PDDL planning failed` | LLM 生成了语法错误的 problem.pddl | 检查生成的 problem.pddl 文件（在 `outputs/` 下），修复 Prompt |
-| planner 返回 "no plan found" | LLM 翻译的状态有逻辑错误（如 `on` 方向反了） | 在 Prompt 中强调 on(x,y) 的含义：x 在 y 上面 |
-| NL-only 任务失败 | Prompt 没有教 LLM 如何处理纯 NL 输入 | 增加 NL→PDDL 的转换示例 |
-| `:objects` 缺少积木 | LLM 漏声明了积木 | Prompt 中强调列出所有积木 |
-
----
-
-## 六、LLM 配置
-
-### 命令行参数（一次性）
-
-```bash
-python run_q1.py --task ... \
-    --api-key <key> \
-    --provider openai-compatible \
-    --base-url <API地址> \
-    --model <模型名>
-```
-
-### 环境变量（持久化，推荐）
-
-```bash
-export OPENAI_API_KEY="<你的key>"
-export LLM_PROVIDER="openai-compatible"
-export LLM_BASE_URL="<API地址>"
-export LLM_MODEL="<模型名>"
-```
-
-支持的后端：`openai`（OpenAI 官方）、`anthropic`（Claude）、`openai-compatible`（DeepSeek / Qwen / 任何 OpenAI 兼容 API）。
-
-### 注意
-
-- 强模型（如 deepseek-v4-pro / gpt-4o / claude-opus）规划能力好，但费用高
-- 弱模型（如 deepseek-chat / gpt-4o-mini）费用低，但对 Prompt 质量要求更高
-- **最终评测可能使用与你调试时不同的模型**，因此 Prompt 的泛化性很重要
-
----
-
-## 七、调试技巧
-
-### 7.1 单任务调试
-
-```bash
-# Q1 调试 task_02
-python run_q1.py --task tasks/public/task_02.json \
-    --api-key <key> --provider openai-compatible \
-    --base-url <API> --model <模型>
-
-# Q2 调试 task_02
-python run_q2.py --task tasks/public/task_02.json \
-    --api-key <key> --provider openai-compatible \
-    --base-url <API> --model <模型>
-```
-
-### 7.2 查看环境状态
-
-`BlocksworldEnv.render()` 输出 ASCII 图：
-
-```
-arm: empty
- [A]
- [B]
- [C]
------
-table
-```
-
-### 7.3 Q2 检查生成的 PDDL
-
-运行 Q2 后，生成的 `problem.pddl` 保存在 `outputs/<task_id>/problem.pddl`。打开检查 LLM 到底生成了什么。
-
-### 7.4 打印 LLM 原始输出
-
-在 `plan_with_llm()` 或 `plan_with_llm_pddl()` 中加一行：
-
-```python
-print("LLM raw response:", response[:500])  # 打印前 500 字符
-```
-
-### 7.5 批量自测
-
-```bash
-# 一次性测所有公开任务
-python evaluate.py --method q1 --task_dir tasks/public \
-    --api-key <key> --provider openai-compatible \
-    --base-url <API> --model <模型>
-
-python evaluate.py --method q2 --task_dir tasks/public \
-    --api-key <key> --provider openai-compatible \
-    --base-url <API> --model <模型>
+# 每个元素 str() 后取第一行，如 "pickup d"
 ```
 
 ---
 
-## 八、评分标准（100 分）
+## 5. 怎么跑（建议先配环境变量）
 
-| 模块 | 分值 | 考察什么 |
-|------|:---:|------|
-| Q1 Prompt 规划 | 25 | Prompt 设计质量、动作序列正确性、公开+隐藏任务通过率 |
-| Q2 LLM+PDDL | 30 | PDDL 生成正确性、规划器调用、NL-only 任务表现 |
-| 接口规范 | 15 | 函数签名正确、不修改教师代码、不硬编码 |
-| 实验分析 | 20 | Q1 vs Q2 对比深度、失败案例诊断、错误统计 |
-| 报告质量 | 10 | 结构清晰、表达规范、图表完整 |
+```bash
+export OPENAI_API_KEY="你的key"
+export LLM_PROVIDER="openai-compatible"   # openai / anthropic / openai-compatible
+export LLM_BASE_URL="https://api.deepseek.com"
+export LLM_MODEL="deepseek-chat"
+```
+
+在 `student/` 目录下：
+
+```bash
+# 调试单个任务（看清楚某题哪里错）
+python run_q1.py --task tasks/public/task_01.json
+python run_q2.py --task tasks/public/task_02.json
+
+# 一键自测全部 25 个任务，生成 results.json（提交用）
+python evaluate.py --output results.json
+```
+
+**开发节奏**：先用公开任务（`tasks/public/`）跑通基本流程 → 改 Prompt 提高通过率 → 最后攻克隐藏任务那种"只有自然语言"的情况。
+
+> 最终评分可能换一个模型，所以 Prompt 不要只针对一个模型调，要通用。
 
 ---
 
-## 九、提交清单
+## 6. 卡住了？对照常见原因
 
-```
-student/
-├── q1_llm_prompt_planner.py      # Q1 实现
-├── q2_llm_pddl_planner.py        # Q2 实现
-└── prompt_templates/
-    ├── q1_prompt.txt             # Q1 Prompt 模板（可选）
-    └── q2_pddl_prompt.txt        # Q2 Prompt 模板（可选）
+| 现象 | 多半是因为 | 怎么办 |
+|------|------|------|
+| `Plan valid: False` | LLM 用了不满足条件的动作 | Prompt 里写清前提条件，要求逐步自检 |
+| `plan` 是空列表 | `parse_llm_output` 没解析出来 | LLM 可能裹了 markdown/编号，调整解析逻辑 |
+| 计划有效但目标没达成 | LLM 方向搞反了 | Prompt 里把目标状态讲清楚 |
+| Q2 `planning failed` | 生成的 PDDL 语法错 | 打开 `outputs/<task>/problem.pddl` 看 LLM 到底写了啥 |
+| Q2 `no plan found` | 状态翻译有逻辑错（常见 `on` 反了） | 强调 `on(x,y)` = x 在 y 上面 |
+| 隐藏任务全挂 | Prompt 没处理"只有自然语言" | 加一个 自然语言 → 谓词/PDDL 的示例 |
 
-实验报告.pdf                        # 实验报告
-```
-
-### 报告内容建议
-
-1. **实验目标**：你要解决什么问题
-2. **Blocksworld 环境说明**：动作空间、状态表示
-3. **Q1 方法**：Prompt 设计思路、关键决策、Prompt 文本
-4. **Q2 方法**：PDDL 生成策略、规划器选择、Prompt 文本
-5. **实验结果**：25 个任务在两个方法上的通过情况表格
-6. **失败案例分析**：挑 2-3 个典型失败任务，分析原因
-7. **两种方法对比**：成功率、步数、错误类型、适用场景
-8. **总结**：收获与反思
+**调试小技巧**：在 `plan_with_llm` / `plan_with_llm_pddl` 里加 `print(response[:500])` 看 LLM 原始输出；Q2 生成的 PDDL 在 `outputs/` 下可直接打开检查。
 
 ---
 
-## 十、FAQ
+## 7. 提交
 
-**Q: 我可以用 ChatGPT 网页版调试 Prompt 吗？**
+打包细节见 **[SUBMIT.md](SUBMIT.md)**。简单说要交：`my_planner/`（两个 .py + prompt 模板）、`evaluate.py` 跑出的 `results.json`、以及 `实验报告.pdf`。
 
-可以，但最终代码必须调用 API（通过 `llm_client.chat()`）。注意不同 LLM 行为可能不同，建议在目标模型上测试。
+报告建议包含：方法思路（Q1/Q2 各自的 Prompt 设计）、25 个任务的结果表、2–3 个失败案例分析、Q1 vs Q2 对比、总结。
 
-**Q: Q1 和 Q2 哪个更重要？**
+| 评分模块 | 分值 |
+|------|:---:|
+| Q1 Prompt 规划 | 25 |
+| Q2 LLM+PDDL | 30 |
+| 接口规范（不改教师代码、不硬编码） | 15 |
+| 实验分析（对比 + 失败诊断） | 20 |
+| 报告质量 | 10 |
 
-Q1 考察 Prompt 工程能力（25 分），Q2 考察 LLM + 符号方法结合能力（30 分）。Q2 通常会比 Q1 更稳定（因为规划器保证正确性），你需要在报告中分析这个差异。
+---
 
-**Q: NL-only 任务占多少比例？**
+## 8. 常见问题
 
-25 个任务中，4 个公开任务提供结构化状态，21 个隐藏任务是 NL-only。你的 Prompt 必须能够处理两种输入。
+**能用网页版 ChatGPT 调 Prompt 吗？** 可以，但最终代码必须走 `llm_client.chat()`，且最好在目标模型上验证。
 
-**Q: 我能让 LLM 在 Prompt 里做链式思考（Chain-of-Thought）吗？**
+**Q1 和 Q2 哪个更稳？** 通常 Q2 更稳，因为规划器保证正确性；Q1 全靠 Prompt。报告里要分析这个差异。
 
-可以，但要确保最终输出只包含动作序列（Q1）或 PDDL 文件（Q2）。如果 LLM 输出混入了推理文本，你的 `parse_llm_output` / `generate_problem_pddl` 必须能过滤掉。
+**能让 LLM 做思维链（CoT）吗？** 可以，但要保证最终只输出动作（Q1）或纯 PDDL（Q2），其余文字你的解析函数要能过滤掉。
