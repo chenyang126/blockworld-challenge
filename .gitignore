@@ -4,3 +4,5 @@ outputs/
 .claude/
 .vscode/
 *.bak
+results.csv
+*_report.json

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Q1 Runner — Teacher-Provided
+Q2 Runner — Teacher-Provided
 
-Runs the Pure LLM Prompt Planner on a single task and prints the result.
+Runs the LLM + PDDL Planner on a single task and prints the result.
 
 Usage:
-    python run_q1.py --task tasks/public/task_02.json
+    python run_q2.py --task tasks/public/task_02.json
 
 Environment variables (optional):
     OPENAI_API_KEY       OpenAI API key
@@ -36,10 +36,18 @@ def load_task(task_path: str) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Q1: Pure LLM Prompt Planner")
+    parser = argparse.ArgumentParser(description="Run Q2: LLM + PDDL Planner")
     parser.add_argument(
         "--task", type=str, required=True,
         help="Path to task JSON file, e.g. tasks/public/task_02.json"
+    )
+    parser.add_argument(
+        "--domain", type=str, default=None,
+        help="Path to domain.pddl (default: pddl/domain.pddl)"
+    )
+    parser.add_argument(
+        "--output-dir", type=str, default=None,
+        help="Directory to save generated problem.pddl (default: outputs/<task_id>/)"
     )
     parser.add_argument(
         "--provider", type=str, default=None,
@@ -67,8 +75,21 @@ def main():
 
     task = load_task(str(task_path))
     print(f"Task: {task['task_id']}")
-    print(f"Method: LLM Prompt Planner (Q1)")
+    print(f"Method: LLM + PDDL Planner (Q2)")
     print(f"Blocks: {', '.join(task['blocks'])}")
+
+    # ── Domain path ──────────────────────────────────────────────────
+    domain_path = args.domain or str(PROJECT_ROOT / "pddl" / "domain.pddl")
+    if not Path(domain_path).exists():
+        print(f"[ERROR] Domain file not found: {domain_path}")
+        sys.exit(1)
+    print(f"Domain: {domain_path}")
+
+    # ── Output directory ────────────────────────────────────────────
+    output_dir = Path(args.output_dir or PROJECT_ROOT / "outputs" / task["task_id"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    problem_path = output_dir / "problem.pddl"
+    print(f"Output: {output_dir}/")
     print()
 
     # ── Resolve LLM config ──────────────────────────────────────────
@@ -89,12 +110,13 @@ def main():
         sys.exit(1)
 
     # ── Import student planner ──────────────────────────────────────
+    sys.path.insert(0, str(PROJECT_ROOT / "my_planner"))
     try:
-        from student.q1_llm_prompt_planner import plan_with_llm
+        from q2_llm_pddl_planner import plan_with_llm_pddl
     except ImportError as e:
         print(f"[ERROR] Failed to import student planner: {e}")
-        print("Make sure student/q1_llm_prompt_planner.py exists and "
-              "implements plan_with_llm().")
+        print("Make sure my_planner/q2_llm_pddl_planner.py exists and "
+              "implements plan_with_llm_pddl().")
         sys.exit(1)
 
     # ── Plan ────────────────────────────────────────────────────────
@@ -104,31 +126,41 @@ def main():
         student_task["initial_state"] = []
         student_task["goal_state"] = []
 
-    print("Generating plan via LLM ...")
+    print("Generating PDDL problem via LLM and solving ...")
     try:
-        plan = plan_with_llm(student_task, llm_client)
+        plan = plan_with_llm_pddl(student_task, domain_path, llm_client)
     except Exception as e:
-        print(f"[ERROR] LLM planning failed: {e}")
+        print(f"[ERROR] LLM+PDDL planning failed: {e}")
         sys.exit(1)
 
     if not plan:
         print("[ERROR] Planner returned an empty plan.")
         sys.exit(1)
 
-    print("\nGenerated plan:")
+    # ── Print plan ──────────────────────────────────────────────────
+    print("\nPlanner plan:")
     for i, action in enumerate(plan, 1):
         print(f"  {i}. {action}")
+
+    # ── Normalise action format (lowercase, remove dashes) ──────────
+    # PDDL planners typically output lowercase, e.g. "unstack c a"
+    # Convert to uppercase BlocksworldEnv format: "UNSTACK(C,A)"
+    normalised_plan = _normalise_plan(plan)
+    if normalised_plan != plan:
+        print("\nNormalised plan:")
+        for i, action in enumerate(normalised_plan, 1):
+            print(f"  {i}. {action}")
 
     # ── Validate in environment ─────────────────────────────────────
     env = BlocksworldEnv(task["blocks"])
     env.reset(task["initial_state"])
 
-    result = env.execute_plan(plan)
+    result = env.execute_plan(normalised_plan)
     goal_success = env.is_goal_satisfied(task["goal_state"])
 
     print(f"\nPlan valid: {result['plan_valid']}")
     print(f"Goal achieved: {goal_success}")
-    print(f"Number of steps: {len(plan)}")
+    print(f"Number of steps: {len(normalised_plan)}")
 
     if result["failed_step"] is not None:
         print(f"Failed at step {result['failed_step']}: "
@@ -141,6 +173,31 @@ def main():
     # ── Exit code ───────────────────────────────────────────────────
     if not (result["plan_valid"] and goal_success):
         sys.exit(1)
+
+
+def _normalise_plan(plan: list) -> list:
+    """
+    Convert planner output (e.g. lowercase, dashed) to canonical form.
+
+    e.g. "unstack c a" → "UNSTACK(C,A)"
+         "pick-up a"   → "PICKUP(A)"
+    """
+    import re
+
+    normalised = []
+    for action in plan:
+        action = action.strip().lower()
+        # Remove dashes: "pick-up" → "pickup"
+        action_clean = action.replace("-", "")
+        # Split into name + args: "unstack c a" → ("unstack", "c a")
+        parts = action_clean.split(None, 1)
+        if len(parts) == 0:
+            continue
+        name = parts[0].upper()
+        args_raw = parts[1] if len(parts) > 1 else ""
+        args_list = [a.strip().upper() for a in args_raw.split() if a.strip()]
+        normalised.append(f"{name}({','.join(args_list)})")
+    return normalised
 
 
 if __name__ == "__main__":
