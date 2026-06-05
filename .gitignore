@@ -22,3 +22,5 @@ multirun/
 .vscode/
 .idea/
 .DS_Store
+
+dist/

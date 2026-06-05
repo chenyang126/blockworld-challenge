@@ -21,32 +21,40 @@ uv pip install "stable-worldmodel[train,env]"        # 没有 uv 则用: pip ins
 
 ---
 
-## 第 2 步：放老师提供的文件
+## 第 2 步：下载并放好数据与权重
 
-数据和权重都从一个根目录读取，默认 `~/.stable_worldmodel`。把老师给的 **3 个文件**按下面结构放好：
+老师把数据集、模型权重、配置打包成了一个文件：**`tworoom_student_data.zip`（约 92 MB）**。
 
+**① 下载**（地址由老师提供）：
+```bash
+# 从老师给的链接下载到当前目录，例如：
+wget <老师提供的下载链接> -O tworoom_student_data.zip
+```
+
+**② 解压到数据根目录**（默认 `~/.stable_worldmodel`），解压后会自动形成正确结构，无需手动拷贝：
+```bash
+unzip tworoom_student_data.zip -d ~/.stable_worldmodel
+```
+
+解压后应是这样：
 ```
 ~/.stable_worldmodel/
-├── datasets/
-│   └── tworoom.h5                  ← 数据集
-└── checkpoints/
-    └── tworoom/
-        ├── weights_epoch_24.pt     ← 模型权重
-        └── config.json             ← 模型结构（必须和权重放一起！）
+├── datasets/tworoom.h5                          ← 数据集（精简版）
+└── checkpoints/tworoom/
+    ├── weights_epoch_24.pt                      ← 模型权重
+    └── config.json                              ← 模型结构
 ```
 
-命令：
+> 想换目录：先 `export STABLEWM_HOME=/你的路径`，再把上面 `unzip -d` 的目标改成同一路径。
+
+**③ 自检**（确认环境/文件都就位，再跑评估）：
 ```bash
-ROOT=~/.stable_worldmodel
-mkdir -p $ROOT/datasets $ROOT/checkpoints/tworoom
-cp /路径/tworoom.h5          $ROOT/datasets/
-cp /路径/weights_epoch_24.pt $ROOT/checkpoints/tworoom/
-cp /路径/config.json         $ROOT/checkpoints/tworoom/
+bash scripts/check_setup.sh
 ```
 
-> 想换目录：`export STABLEWM_HOME=/你的路径`（其余结构不变）。
-
-跑之前可先自检：`bash scripts/check_setup.sh`
+> ⚠️ **关于数据集**：为了把体积从 12GB 压到 92MB，这个包是**精简版**，只包含默认评估会用到的图像帧。
+> **请不要修改 `seed` 或回合数 `num_eval`** —— 否则会用到没有保留图像的帧，导致结果错误。
+> 直接用下面第 3 步的命令即可。
 
 ---
 
@@ -62,7 +70,7 @@ python eval.py --config-name=tworoom policy=tworoom/weights_epoch_24.pt
 ```bash
 python eval.py --config-name=tworoom_cpu policy=tworoom/weights_epoch_24.pt
 ```
-预期：约 15 秒完成，打印出 `success_rate`。
+预期：约 15 秒完成，打印 `success_rate`（默认 5 个回合，实测 **5/5 成功**）。
 > CPU 版为了速度把回合数和规划规模调小了，成功率数值会和 84% 不同，**这是正常的**——本作业只要求“跑通流程”。
 > （不要用 GPU 的完整配置在 CPU 上跑：默认参数在 CPU 上要 **50 分钟以上**。）
 
@@ -88,8 +96,9 @@ python eval.py --config-name=tworoom_cpu policy=tworoom/weights_epoch_24.pt
 
 | 现象 | 解决 |
 |---|---|
-| 加载模型报错 / 找不到 config | `config.json` 必须和 `.pt` 在同一目录。 |
-| 找不到 `tworoom.h5` | 数据集没放到 `datasets/`，或 `STABLEWM_HOME` 没设对。 |
+| 加载模型报错 / 找不到 config | `config.json` 必须和 `.pt` 在同一目录（解压后会自动满足）。 |
+| 找不到 `tworoom.h5` | 确认 zip 已解压到 `~/.stable_worldmodel`（或你设的 `STABLEWM_HOME`）。 |
+| `goal not in info_dict` / 结果异常 | 你改了 `seed` 或 `num_eval`。精简数据集只支持默认配置，请用原命令。 |
 | `policy` 路径错误 | 路径相对 `checkpoints/` 写，不要带 `checkpoints/` 前缀。 |
 | EGL / 渲染报错 | 执行第 1 步的 `apt-get install`。 |
 | 没有 GPU | 用 CPU 轻量版命令（`--config-name=tworoom_cpu`）。 |
