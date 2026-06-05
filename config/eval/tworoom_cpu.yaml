@@ -1,0 +1,28 @@
+# TwoRoom 评估 —— 纯 CPU 版本（无需 GPU）
+#
+# 继承 tworoom.yaml 的全部设置，仅把设备切到 CPU，并调小规划规模，
+# 让没有 GPU 的机器也能在可接受时间内“跑通”评估流程。
+#
+# 用法：
+#   python eval.py --config-name=tworoom_cpu policy=tworoom/weights_epoch_24.pt
+#
+# 注意：为了速度，回合数与规划样本数都被调小，最终 success_rate 会与
+# GPU 默认配置（约 84%）有出入。教学目标是“跑通流程”，而非复现论文数值。
+
+defaults:
+  - tworoom
+  - _self_
+
+device: cpu
+
+solver:
+  device: cpu
+  num_samples: 64 # 默认 300，CPU 上调小
+  n_steps: 10 # 默认 30
+  topk: 8 # 默认 30
+
+eval:
+  num_eval: 5 # 默认 50，CPU 上只评 5 个回合
+
+output:
+  filename: tworoom_cpu_results.txt

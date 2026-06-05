@@ -84,9 +84,11 @@ def run(cfg: DictConfig):
     # -- run evaluation
     policy = cfg.get("policy", "random")
 
+    device = cfg.get("device", "cuda")
+
     if policy != "random":
         model = swm.wm.utils.load_pretrained(cfg.policy)
-        model = model.to("cuda")
+        model = model.to(device)
         model = model.eval()
         model.requires_grad_(False)
         model.interpolate_pos_encoding = True

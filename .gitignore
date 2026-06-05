@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# 虚拟环境
+.venv/
+venv/
+
+# Hydra / 运行产物
+outputs/
+logs/
+multirun/
+
+# 模型权重 / 数据（应放在 $STABLEWM_HOME，不入库）
+*.ckpt
+*.pt
+*.h5
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
